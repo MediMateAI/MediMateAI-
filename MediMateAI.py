@@ -2,7 +2,7 @@ import logging
 import sqlite3
 import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, CallbackContext, MessageHandler, filters
 from flask import Flask
 
 # Set up logging
@@ -94,15 +94,32 @@ def get_medical_notes(topic):
 # Command handlers
 async def start(update: Update, context: CallbackContext):
     """Handles the /start command"""
-    await update.message.reply_text("Welcome to MediMateAI! Type a medication name to get details or /help for instructions.")
+    await update.message.reply_text("Welcome to MediMateAI! Type any medication name to get details.")
 
 async def help(update: Update, context: CallbackContext):
     """Handles the /help command"""
     await update.message.reply_text(
-        "I can help you with the following:\n"
-        "Just type the name of a medication to get detailed information about it.\n"
-        "/notes [topic] - Get medical notes on a topic"
+        "I can help you with the following commands:\n"
+        "/search [medication name] - Get medication details\n"
+        "/notes [topic] - Get medical notes on a topic\n"
+        "Or simply type the medication name, and I'll provide the details!"
     )
+
+async def search(update: Update, context: CallbackContext):
+    """Handles the /search command"""
+    if context.args:
+        name = ' '.join(context.args)
+        medication = get_medication_info(name)
+        if medication:
+            response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
+            response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
+            response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
+            response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
+            await update.message.reply_text(response)
+        else:
+            await update.message.reply_text(f"No information found for {name}.")
+    else:
+        await update.message.reply_text("Please provide a medication name after the /search command.")
 
 async def notes(update: Update, context: CallbackContext):
     """Handles the /notes command"""
@@ -118,11 +135,10 @@ async def notes(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Please provide a topic after the /notes command.")
 
-# Handler for any text message (search for drug info)
-async def handle_message(update: Update, context: CallbackContext):
-    """Handles text input as drug name query"""
-    user_input = update.message.text.strip()
-    medication = get_medication_info(user_input)
+async def auto_search(update: Update, context: CallbackContext):
+    """Automatically searches for medication info when the user types a medication name."""
+    name = update.message.text.strip()
+    medication = get_medication_info(name)
     if medication:
         response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
         response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
@@ -130,7 +146,7 @@ async def handle_message(update: Update, context: CallbackContext):
         response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
         await update.message.reply_text(response)
     else:
-        await update.message.reply_text(f"No information found for {user_input}.")
+        await update.message.reply_text(f"No information found for {name}. Try again.")
 
 # Flask route to confirm the app is running
 @app.route('/')
@@ -155,10 +171,11 @@ def main():
     # Command handlers
     application.add_handler(CommandHandler("start", start))  # Ensure /start is first
     application.add_handler(CommandHandler("help", help))
+    application.add_handler(CommandHandler("search", search))
     application.add_handler(CommandHandler("notes", notes))
 
-    # Handler for text messages (search for drug info)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Message handler for medication search
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_search))
 
     # Start the bot in a separate thread to keep Flask running
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
