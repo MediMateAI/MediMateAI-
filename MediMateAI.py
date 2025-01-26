@@ -47,39 +47,31 @@ def create_database():
     conn.commit()
     conn.close()
 
-# Function to fetch medication data from OpenFDA API
-def fetch_medications_from_openfda():
-    url = "https://api.fda.gov/drug/label.json?limit=1000"
-    response = requests.get(url)
-    
-    if response.status_code == 200:
-        return response.json()  # Returns the JSON data
-    else:
-        print(f"Error: {response.status_code}")
-        return None
-
-# Function to insert fetched medication data into the SQLite database
-def insert_medications_data(data):
+# Function to insert extended sample data into the medications table
+def add_sample_data():
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
 
-    for medication in data['results']:  # Loop through each medication in the response
-        name = medication.get('openfda', {}).get('brand_name', ['Unknown'])[0]
-        description = medication.get('description', ['No description available'])[0]
-        side_effects = ', '.join(medication.get('adverse_reactions', ['No side effects reported']))
-        dosage = ', '.join(medication.get('dosage_and_administration', ['No dosage info available']))
-        indications = ', '.join(medication.get('indications', ['No indications available']))
-        contraindications = ', '.join(medication.get('contraindications', ['No contraindications available']))
-        pharmacokinetics = ', '.join(medication.get('pharmacokinetics', ['No pharmacokinetics info available']))
-        interactions = ', '.join(medication.get('drug_interactions', ['No interactions available']))
+    # Extended sample medication data
+    medications = [
+        ('Paracetamol', 'Used for relieving mild pain and reducing fever', 'Nausea, liver damage', '500mg every 4-6 hours',
+         'Pain relief, fever reduction', 'Liver disease, alcohol use', 'Absorbed rapidly in the gastrointestinal tract',
+         'May interact with alcohol, warfarin'),
+        ('Ibuprofen', 'NSAID for pain and inflammation', 'Stomach upset, dizziness', '200mg every 4-6 hours',
+         'Pain relief, inflammation reduction', 'Peptic ulcer, kidney disease', 'Peak plasma concentration is reached in 1-2 hours',
+         'May interact with anticoagulants, diuretics'),
+        ('Amoxicillin', 'Antibiotic for bacterial infections', 'Diarrhea, allergic reaction', '250mg three times a day',
+         'Treatment of bacterial infections', 'Hypersensitivity to penicillins', 'Well absorbed in the gastrointestinal tract',
+         'May interact with oral contraceptives, anticoagulants'),
+        ('Aspirin', 'Anti-inflammatory, analgesic, and antipyretic', 'Stomach irritation, bleeding', '325mg every 4-6 hours',
+         'Pain relief, fever reduction, anti-inflammatory effects', 'Active peptic ulcer, bleeding disorders', 'Peak plasma concentration within 1-2 hours',
+         'May interact with NSAIDs, anticoagulants')
+    ]
 
-        # Insert the medication data into the database
-        c.execute('''INSERT INTO medications (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
-                  (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions))
+    c.executemany("INSERT INTO medications (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", medications)
 
-    conn.commit()  # Commit changes to the database
-    conn.close()   # Close the database connection
+    conn.commit()
+    conn.close()
 
 # Fetch medication details from the database
 def get_medication_info(name):
@@ -154,13 +146,8 @@ def main():
     # Create database and tables
     create_database()
 
-    # Fetch medication data from OpenFDA and insert into the database
-    data = fetch_medications_from_openfda()  # Fetch medication data from OpenFDA API
-    if data:
-        insert_medications_data(data)  # Insert data into the database
-        print("Medications data inserted successfully.")
-    else:
-        print("Failed to fetch data from OpenFDA.")
+    # Insert sample data into the database
+    add_sample_data()
 
     # Telegram bot setup
     application = Application.builder().token(token).build()
