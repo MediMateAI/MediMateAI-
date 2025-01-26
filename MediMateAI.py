@@ -47,37 +47,45 @@ def create_database():
     conn.commit()
     conn.close()
 
-# Function to insert extended sample data into the medications table
-def add_sample_data():
+# Function to fetch medication data from OpenFDA API
+def fetch_medications_from_openfda():
+    url = "https://api.fda.gov/drug/label.json?limit=1000"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        return response.json()  # Returns the JSON data
+    else:
+        print(f"Error: {response.status_code}")
+        return None
+
+# Function to insert fetched medication data into the SQLite database
+def insert_medications_data(data):
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
 
-    # Extended sample medication data
-    medications = [
-        ('Paracetamol', 'Used for relieving mild pain and reducing fever', 'Nausea, liver damage', '500mg every 4-6 hours',
-         'Pain relief, fever reduction', 'Liver disease, alcohol use', 'Absorbed rapidly in the gastrointestinal tract',
-         'May interact with alcohol, warfarin'),
-        ('Ibuprofen', 'NSAID for pain and inflammation', 'Stomach upset, dizziness', '200mg every 4-6 hours',
-         'Pain relief, inflammation reduction', 'Peptic ulcer, kidney disease', 'Peak plasma concentration is reached in 1-2 hours',
-         'May interact with anticoagulants, diuretics'),
-        ('Amoxicillin', 'Antibiotic for bacterial infections', 'Diarrhea, allergic reaction', '250mg three times a day',
-         'Treatment of bacterial infections', 'Hypersensitivity to penicillins', 'Well absorbed in the gastrointestinal tract',
-         'May interact with oral contraceptives, anticoagulants'),
-        ('Aspirin', 'Anti-inflammatory, analgesic, and antipyretic', 'Stomach irritation, bleeding', '325mg every 4-6 hours',
-         'Pain relief, fever reduction, anti-inflammatory effects', 'Active peptic ulcer, bleeding disorders', 'Peak plasma concentration within 1-2 hours',
-         'May interact with NSAIDs, anticoagulants')
-    ]
+    for medication in data['results']:  # Loop through each medication in the response
+        name = medication.get('openfda', {}).get('brand_name', ['Unknown'])[0]
+        description = medication.get('description', ['No description available'])[0]
+        side_effects = ', '.join(medication.get('adverse_reactions', ['No side effects reported']))
+        dosage = ', '.join(medication.get('dosage_and_administration', ['No dosage info available']))
+        indications = ', '.join(medication.get('indications', ['No indications available']))
+        contraindications = ', '.join(medication.get('contraindications', ['No contraindications available']))
+        pharmacokinetics = ', '.join(medication.get('pharmacokinetics', ['No pharmacokinetics info available']))
+        interactions = ', '.join(medication.get('drug_interactions', ['No interactions available']))
 
-    c.executemany("INSERT INTO medications (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", medications)
+        # Insert the medication data into the database
+        c.execute('''INSERT INTO medications (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
+                  (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions))
 
-    conn.commit()
-    conn.close()
+    conn.commit()  # Commit changes to the database
+    conn.close()   # Close the database connection
 
 # Fetch medication details from the database
 def get_medication_info(name):
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
-    c.execute("SELECT * FROM medications WHERE name LIKE ?", ('%' + name.lower() + '%',))  # case-insensitive search
+    c.execute("SELECT * FROM medications WHERE name LIKE ?", ('%' + name + '%',))
     result = c.fetchall()
     conn.close()
     return result
@@ -86,7 +94,7 @@ def get_medication_info(name):
 def get_medical_notes(topic):
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
-    c.execute("SELECT content FROM medical_notes WHERE topic LIKE ?", ('%' + topic.lower() + '%',))  # case-insensitive search
+    c.execute("SELECT content FROM medical_notes WHERE topic LIKE ?", ('%' + topic + '%',))
     result = c.fetchall()
     conn.close()
     return result
@@ -94,28 +102,15 @@ def get_medical_notes(topic):
 # Command handlers
 async def start(update: Update, context: CallbackContext):
     """Handles the /start command"""
-    await update.message.reply_text("Welcome to MediMateAI! Type any medication name to get details.")
+    await update.message.reply_text("Welcome to MediMateAI! Type a medication name to get details or /help for instructions.")
 
 async def help(update: Update, context: CallbackContext):
     """Handles the /help command"""
     await update.message.reply_text(
-        "I can help you with the following commands:\n"
-        "/search [medication name] - Get medication details\n"
+        "I can help you with the following:\n"
+        "Just type the name of a medication to get detailed information about it.\n"
         "/notes [topic] - Get medical notes on a topic"
     )
-
-async def search(update: Update, context: CallbackContext):
-    """Handles the search for medications directly"""
-    name = update.message.text.strip()  # Get the text the user sent
-    medication = get_medication_info(name)
-    if medication:
-        response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
-        response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
-        response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
-        response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
-        await update.message.reply_text(response)
-    else:
-        await update.message.reply_text(f"No information found for {name}.")
 
 async def notes(update: Update, context: CallbackContext):
     """Handles the /notes command"""
@@ -131,6 +126,20 @@ async def notes(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("Please provide a topic after the /notes command.")
 
+# Handler for any text message (search for drug info)
+async def handle_message(update: Update, context: CallbackContext):
+    """Handles text input as drug name query"""
+    user_input = update.message.text.strip()
+    medication = get_medication_info(user_input)
+    if medication:
+        response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
+        response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
+        response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
+        response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
+        await update.message.reply_text(response)
+    else:
+        await update.message.reply_text(f"No information found for {user_input}.")
+
 # Flask route to confirm the app is running
 @app.route('/')
 def home():
@@ -145,17 +154,24 @@ def main():
     # Create database and tables
     create_database()
 
-    # Insert sample data into the database
-    add_sample_data()
+    # Fetch medication data from OpenFDA and insert into the database
+    data = fetch_medications_from_openfda()  # Fetch medication data from OpenFDA API
+    if data:
+        insert_medications_data(data)  # Insert data into the database
+        print("Medications data inserted successfully.")
+    else:
+        print("Failed to fetch data from OpenFDA.")
 
     # Telegram bot setup
     application = Application.builder().token(token).build()
 
     # Command handlers
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search))  # Direct message search handler
     application.add_handler(CommandHandler("start", start))  # Ensure /start is first
     application.add_handler(CommandHandler("help", help))
     application.add_handler(CommandHandler("notes", notes))
+
+    # Handler for text messages (search for drug info)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start the bot in a separate thread to keep Flask running
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
