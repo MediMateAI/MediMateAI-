@@ -2,7 +2,7 @@ import logging
 import sqlite3
 import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from flask import Flask
 
 # Set up logging
@@ -77,7 +77,7 @@ def add_sample_data():
 def get_medication_info(name):
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
-    c.execute("SELECT * FROM medications WHERE name LIKE ?", ('%' + name + '%',))
+    c.execute("SELECT * FROM medications WHERE name LIKE ?", ('%' + name.lower() + '%',))  # case-insensitive search
     result = c.fetchall()
     conn.close()
     return result
@@ -86,7 +86,7 @@ def get_medication_info(name):
 def get_medical_notes(topic):
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
-    c.execute("SELECT content FROM medical_notes WHERE topic LIKE ?", ('%' + topic + '%',))
+    c.execute("SELECT content FROM medical_notes WHERE topic LIKE ?", ('%' + topic.lower() + '%',))  # case-insensitive search
     result = c.fetchall()
     conn.close()
     return result
@@ -94,7 +94,7 @@ def get_medical_notes(topic):
 # Command handlers
 async def start(update: Update, context: CallbackContext):
     """Handles the /start command"""
-    await update.message.reply_text("Welcome to MediMateAI! Type /help for instructions.")
+    await update.message.reply_text("Welcome to MediMateAI! Type any medication name to get details.")
 
 async def help(update: Update, context: CallbackContext):
     """Handles the /help command"""
@@ -105,20 +105,17 @@ async def help(update: Update, context: CallbackContext):
     )
 
 async def search(update: Update, context: CallbackContext):
-    """Handles the /search command"""
-    if context.args:
-        name = ' '.join(context.args)
-        medication = get_medication_info(name)
-        if medication:
-            response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
-            response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
-            response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
-            response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
-            await update.message.reply_text(response)
-        else:
-            await update.message.reply_text(f"No information found for {name}.")
+    """Handles the search for medications directly"""
+    name = update.message.text.strip()  # Get the text the user sent
+    medication = get_medication_info(name)
+    if medication:
+        response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
+        response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
+        response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
+        response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
+        await update.message.reply_text(response)
     else:
-        await update.message.reply_text("Please provide a medication name after the /search command.")
+        await update.message.reply_text(f"No information found for {name}.")
 
 async def notes(update: Update, context: CallbackContext):
     """Handles the /notes command"""
@@ -155,9 +152,9 @@ def main():
     application = Application.builder().token(token).build()
 
     # Command handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search))  # Direct message search handler
     application.add_handler(CommandHandler("start", start))  # Ensure /start is first
     application.add_handler(CommandHandler("help", help))
-    application.add_handler(CommandHandler("search", search))
     application.add_handler(CommandHandler("notes", notes))
 
     # Start the bot in a separate thread to keep Flask running
