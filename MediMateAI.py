@@ -26,18 +26,50 @@ def clear_webhook(token):
 def create_database():
     conn = sqlite3.connect('medibot.db')
     c = conn.cursor()
-    
-    # Create medication and notes tables if they don't exist
+
+    # Create medication and notes tables with extended information
     c.execute('''CREATE TABLE IF NOT EXISTS medications (
                     id INTEGER PRIMARY KEY,
                     name TEXT,
-                    description TEXT)''')
+                    description TEXT,
+                    side_effects TEXT,
+                    dosage TEXT,
+                    indications TEXT,
+                    contraindications TEXT,
+                    pharmacokinetics TEXT,
+                    interactions TEXT)''')
 
     c.execute('''CREATE TABLE IF NOT EXISTS medical_notes (
                     id INTEGER PRIMARY KEY,
                     topic TEXT,
                     content TEXT)''')
-    
+
+    conn.commit()
+    conn.close()
+
+# Function to insert extended sample data into the medications table
+def add_sample_data():
+    conn = sqlite3.connect('medibot.db')
+    c = conn.cursor()
+
+    # Extended sample medication data
+    medications = [
+        ('Paracetamol', 'Used for relieving mild pain and reducing fever', 'Nausea, liver damage', '500mg every 4-6 hours',
+         'Pain relief, fever reduction', 'Liver disease, alcohol use', 'Absorbed rapidly in the gastrointestinal tract',
+         'May interact with alcohol, warfarin'),
+        ('Ibuprofen', 'NSAID for pain and inflammation', 'Stomach upset, dizziness', '200mg every 4-6 hours',
+         'Pain relief, inflammation reduction', 'Peptic ulcer, kidney disease', 'Peak plasma concentration is reached in 1-2 hours',
+         'May interact with anticoagulants, diuretics'),
+        ('Amoxicillin', 'Antibiotic for bacterial infections', 'Diarrhea, allergic reaction', '250mg three times a day',
+         'Treatment of bacterial infections', 'Hypersensitivity to penicillins', 'Well absorbed in the gastrointestinal tract',
+         'May interact with oral contraceptives, anticoagulants'),
+        ('Aspirin', 'Anti-inflammatory, analgesic, and antipyretic', 'Stomach irritation, bleeding', '325mg every 4-6 hours',
+         'Pain relief, fever reduction, anti-inflammatory effects', 'Active peptic ulcer, bleeding disorders', 'Peak plasma concentration within 1-2 hours',
+         'May interact with NSAIDs, anticoagulants')
+    ]
+
+    c.executemany("INSERT INTO medications (name, description, side_effects, dosage, indications, contraindications, pharmacokinetics, interactions) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", medications)
+
     conn.commit()
     conn.close()
 
@@ -78,7 +110,10 @@ async def search(update: Update, context: CallbackContext):
         name = ' '.join(context.args)
         medication = get_medication_info(name)
         if medication:
-            response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}"
+            response = f"Medication: {medication[0][1]}\nDescription: {medication[0][2]}\n"
+            response += f"Side Effects: {medication[0][3]}\nDosage: {medication[0][4]}\n"
+            response += f"Indications: {medication[0][5]}\nContraindications: {medication[0][6]}\n"
+            response += f"Pharmacokinetics: {medication[0][7]}\nInteractions: {medication[0][8]}"
             await update.message.reply_text(response)
         else:
             await update.message.reply_text(f"No information found for {name}.")
@@ -112,6 +147,9 @@ def main():
 
     # Create database and tables
     create_database()
+
+    # Insert sample data into the database
+    add_sample_data()
 
     # Telegram bot setup
     application = Application.builder().token(token).build()
